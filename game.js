@@ -17,6 +17,8 @@
     },
     async saveData(str) {
       if (!yt) return;
+      // saveData requires a well-formed UTF-16 string.
+      if (typeof str.isWellFormed === 'function' && !str.isWellFormed()) { SDK.logWarning(); return; }
       try { await yt.game.saveData(str); } catch (e) { SDK.logWarning(); }
     },
     async getLanguage() {
@@ -40,10 +42,11 @@
       if (!SDK.inEnv) return;
       try { await yt.ads.requestInterstitialAd(); } catch (e) {}
     },
+    // Resolves to 'earned', 'declined' or 'unavailable' (the request was rejected).
     async rewarded(rewardId) {
       // Outside Playables there is no ad; grant the reward so the flow can be tested.
-      if (!SDK.inEnv) return new Promise((r) => setTimeout(() => r(true), 400));
-      try { return !!(await yt.ads.requestRewardedAd(rewardId)); } catch (e) { return false; }
+      if (!SDK.inEnv) return new Promise((r) => setTimeout(() => r('earned'), 400));
+      try { return (await yt.ads.requestRewardedAd(rewardId)) ? 'earned' : 'declined'; } catch (e) { return 'unavailable'; }
     },
     logError() { try { yt && yt.health.logError(); } catch (e) {} },
     logWarning() { try { yt && yt.health.logWarning(); } catch (e) {} },
@@ -56,17 +59,17 @@
   // Localization (language comes only from ytgame.system.getLanguage)
   // ---------------------------------------------------------------------------
   const STRINGS = {
-    en: { title: 'SKY STACK', cont: 'Continue (watch ad)', again: 'Play again', tap: 'Tap to play', retry: 'Tap to play again', best: 'BEST', score: 'SCORE',
+    en: { title: 'SKY STACK', adNA: 'Ad not available right now. Try again later.', cont: 'Continue (watch ad)', again: 'Play again', tap: 'Tap to play', retry: 'Tap to play again', best: 'BEST', score: 'SCORE',
       perfect: 'PERFECT', over: 'GAME OVER', newBest: 'NEW BEST!', loading: 'Loading…', hint: 'Tap, click or press Space to drop' },
-    tr: { title: 'SKY STACK', cont: 'Devam et (reklam izle)', again: 'Tekrar oyna', tap: 'Oynamak için dokun', retry: 'Tekrar oynamak için dokun', best: 'EN İYİ', score: 'SKOR',
+    tr: { title: 'SKY STACK', adNA: 'Şu an reklam yok. Daha sonra tekrar dene.', cont: 'Devam et (reklam izle)', again: 'Tekrar oyna', tap: 'Oynamak için dokun', retry: 'Tekrar oynamak için dokun', best: 'EN İYİ', score: 'SKOR',
       perfect: 'MÜKEMMEL', over: 'OYUN BİTTİ', newBest: 'YENİ REKOR!', loading: 'Yükleniyor…', hint: 'Bırakmak için dokun, tıkla veya Boşluk' },
-    es: { title: 'SKY STACK', cont: 'Continuar (ver anuncio)', again: 'Jugar otra vez', tap: 'Toca para jugar', retry: 'Toca para jugar otra vez', best: 'MEJOR', score: 'PUNTOS',
+    es: { title: 'SKY STACK', adNA: 'Anuncio no disponible. Inténtalo más tarde.', cont: 'Continuar (ver anuncio)', again: 'Jugar otra vez', tap: 'Toca para jugar', retry: 'Toca para jugar otra vez', best: 'MEJOR', score: 'PUNTOS',
       perfect: 'PERFECTO', over: 'FIN DEL JUEGO', newBest: '¡NUEVO RÉCORD!', loading: 'Cargando…', hint: 'Toca, haz clic o pulsa Espacio' },
-    pt: { title: 'SKY STACK', cont: 'Continuar (ver anúncio)', again: 'Jogar de novo', tap: 'Toque para jogar', retry: 'Toque para jogar de novo', best: 'MELHOR', score: 'PONTOS',
+    pt: { title: 'SKY STACK', adNA: 'Anúncio indisponível. Tente mais tarde.', cont: 'Continuar (ver anúncio)', again: 'Jogar de novo', tap: 'Toque para jogar', retry: 'Toque para jogar de novo', best: 'MELHOR', score: 'PONTOS',
       perfect: 'PERFEITO', over: 'FIM DE JOGO', newBest: 'NOVO RECORDE!', loading: 'Carregando…', hint: 'Toque, clique ou aperte Espaço' },
-    de: { title: 'SKY STACK', cont: 'Weiter (Werbung ansehen)', again: 'Nochmal spielen', tap: 'Tippen zum Spielen', retry: 'Tippen für neues Spiel', best: 'BESTE', score: 'PUNKTE',
+    de: { title: 'SKY STACK', adNA: 'Gerade keine Werbung verfügbar. Später erneut versuchen.', cont: 'Weiter (Werbung ansehen)', again: 'Nochmal spielen', tap: 'Tippen zum Spielen', retry: 'Tippen für neues Spiel', best: 'BESTE', score: 'PUNKTE',
       perfect: 'PERFEKT', over: 'SPIEL VORBEI', newBest: 'NEUER REKORD!', loading: 'Lädt…', hint: 'Tippen, klicken oder Leertaste' },
-    fr: { title: 'SKY STACK', cont: 'Continuer (voir une pub)', again: 'Rejouer', tap: 'Touchez pour jouer', retry: 'Touchez pour rejouer', best: 'RECORD', score: 'SCORE',
+    fr: { title: 'SKY STACK', adNA: 'Pub indisponible. Réessayez plus tard.', cont: 'Continuer (voir une pub)', again: 'Rejouer', tap: 'Touchez pour jouer', retry: 'Touchez pour rejouer', best: 'RECORD', score: 'SCORE',
       perfect: 'PARFAIT', over: 'PARTIE TERMINÉE', newBest: 'NOUVEAU RECORD !', loading: 'Chargement…', hint: 'Touchez, cliquez ou Espace' },
   };
   let L = STRINGS.en;
@@ -345,7 +348,8 @@
   let runLayersCounted = 0;    // layers of this run already added to totalLayers
   let gamesSinceAd = 0;
   const INTERSTITIAL_EVERY = 3;
-  let buttons = [];            // hit areas of on-screen buttons (CSS px)
+  let buttons = [];
+  let notice = null;           // short message shown on the game over screen            // hit areas of on-screen buttons (CSS px)
 
   function makeStars() {
     stars = [];
@@ -408,8 +412,9 @@
   // Rewarded continue: user-initiated, once per run.
   async function continueWithAd() {
     if (!canContinue()) return;
-    const earned = await withAd(() => SDK.rewarded('sky-stack-continue'));
-    if (!earned) return;
+    const result = await withAd(() => SDK.rewarded('sky-stack-continue'));
+    if (result === 'unavailable') notice = { text: L.adNA, t: 0 };
+    if (result !== 'earned') return;
     revivedThisRun = true;
     state = 'playing';
     newBest = false;
@@ -629,6 +634,7 @@
 
     for (const p of popups) p.t += dt;
     popups = popups.filter((p) => p.t < 1);
+    if (notice && (notice.t += dt) > 3) notice = null;
     for (const w of waves) w.t += dt;
     waves = waves.filter((w) => w.t < 0.5);
   }
@@ -857,6 +863,10 @@
         const pulse = 1 + 0.06 * Math.sin(time * 8);
         const ns = fitSize(L.newBest, 22 * u * pulse, pw - 32, 900);
         text(L.newBest, W / 2, py + 188 * u, ns, '#ffd166', 900, 'center', k);
+      }
+      if (notice) {
+        const ts = fitSize(notice.text, 14 * u, pw - 32, 700);
+        text(notice.text, W / 2, py + 214 * u, ts, '#ffb4a2', 700, 'center', Math.min(1, 3 - notice.t));
       }
       buttons = [];
       if (overTime > 0.7) {
