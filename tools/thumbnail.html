@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sky Stack thumbnail renderer</title>
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// Renders a text-free key art scene in the game's own visual style.
+// Usage: thumbnail.html?w=1920&h=1080
+(() => {
+  const q = new URLSearchParams(location.search);
+  const W = +q.get('w') || 1920;
+  const H = +q.get('h') || 1080;
+  const c = document.getElementById('c');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+
+  // Deterministic random so every ratio shows the same scene.
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  const BH = 34, DEPTH = 22, baseHue = 160;
+  const hueAt = (i) => (baseHue + i * 9) % 360;
+
+  // Tower: widths shrink with small misses, a few perfect drops in between.
+  const blocks = [];
+  let x = 0, w = 220;
+  const misses = [0, 6, 0, 0, -9, 0, 7, 0, 0, -5, 0, 8, 0, -6, 0, 0];
+  for (let i = 0; i < misses.length; i++) {
+    const d = misses[i];
+    if (d) { w -= Math.abs(d); x += d / 2; }
+    blocks.push({ x, w, i });
+  }
+  const topI = blocks.length;
+  const towerH = (topI + 3) * BH;
+
+  // Fit the tower into the frame (it is the hero of every ratio).
+  const S = Math.min(H * 0.78 / towerH, W * 0.9 / 420);
+  const groundY = H * 0.93;
+  const sx = (wx) => W / 2 + wx * S;
+  const sy = (wy) => groundY - wy * S;
+
+  // Sky: dusk at the bottom fading into space at the top.
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, 'hsl(255,55%,10%)');
+  g.addColorStop(0.45, 'hsl(285,50%,24%)');
+  g.addColorStop(0.8, 'hsl(330,55%,45%)');
+  g.addColorStop(1, 'hsl(20,75%,60%)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars, denser and brighter towards the top.
+  const unit = Math.min(W, H) / 1080;
+  for (let k = 0; k < 260; k++) {
+    const yy = Math.pow(rnd(), 1.8) * H * 0.75;
+    ctx.globalAlpha = 0.25 + 0.75 * (1 - yy / (H * 0.75)) * rnd();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(rnd() * W, yy, (0.6 + rnd() * 1.8) * unit, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Soft glow behind the tower top.
+  const topY = sy((topI + 1.5) * BH);
+  const glow = ctx.createRadialGradient(W / 2, topY, 0, W / 2, topY, 420 * S);
+  glow.addColorStop(0, 'rgba(255,240,200,0.35)');
+  glow.addColorStop(1, 'rgba(255,240,200,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  // Ground
+  ctx.fillStyle = 'hsla(270,40%,10%,0.55)';
+  ctx.fillRect(0, groundY, W, H - groundY);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(sx(-110), groundY, 220 * S + DEPTH * S, H - groundY);
+
+  function block(bx, bw, i, y = i * BH, alpha = 1) {
+    const hue = hueAt(i);
+    const l = sx(bx - bw / 2), r = sx(bx + bw / 2);
+    const t = sy(y + BH), b = sy(y);
+    const d = DEPTH * S, dy = d * 0.55;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = `hsl(${hue},55%,34%)`;
+    ctx.beginPath(); ctx.moveTo(r, t); ctx.lineTo(r + d, t - dy); ctx.lineTo(r + d, b - dy); ctx.lineTo(r, b); ctx.fill();
+    ctx.fillStyle = `hsl(${hue},80%,72%)`;
+    ctx.beginPath(); ctx.moveTo(l, t); ctx.lineTo(l + d, t - dy); ctx.lineTo(r + d, t - dy); ctx.lineTo(r, t); ctx.fill();
+    const fg = ctx.createLinearGradient(0, t, 0, b);
+    fg.addColorStop(0, `hsl(${hue},70%,58%)`);
+    fg.addColorStop(1, `hsl(${hue},65%,47%)`);
+    ctx.fillStyle = fg;
+    ctx.fillRect(l, t, r - l, b - t);
+    ctx.globalAlpha = 1;
+  }
+
+  for (const b of blocks) block(b.x, b.w, b.i);
+
+  // Perfect-drop ring on the top block
+  const top = blocks[blocks.length - 1];
+  for (let k = 0; k < 2; k++) {
+    const pad = (10 + k * 18) * S;
+    ctx.strokeStyle = `rgba(255,255,255,${0.75 - k * 0.4})`;
+    ctx.lineWidth = Math.max(2, 3 * S);
+    const ox = DEPTH * S / 2, oy = DEPTH * S * 0.55 / 2;
+    ctx.strokeRect(sx(top.x - top.w / 2) - pad + ox, sy((top.i + 1) * BH) - pad - oy, top.w * S + pad * 2, BH * S + pad * 2 + oy);
+  }
+
+  // Sparkles from the perfect drop
+  for (let k = 0; k < 40; k++) {
+    const a = rnd() * Math.PI;
+    const dist = (30 + rnd() * 150) * S;
+    const px = sx(top.x) + Math.cos(a) * dist * 1.4;
+    const py = sy((top.i + 1) * BH) - Math.sin(a) * dist * 0.8;
+    const r = (3 + rnd() * 5) * S;
+    ctx.globalAlpha = 0.5 + rnd() * 0.5;
+    ctx.fillStyle = `hsl(${hueAt(top.i)},90%,82%)`;
+    ctx.fillRect(px - r / 2, py - r / 2, r, r);
+  }
+  ctx.globalAlpha = 1;
+
+  // Next block sliding in from the right
+  // Keep it inside the frame on narrow (portrait) ratios.
+  const slide = Math.min(120, (W * 0.45) / S - DEPTH - top.w / 2 - top.x);
+  block(top.x + slide, top.w, topI, topI * BH + BH * 0.9);
+
+  // Cut-off piece tumbling down beside the tower
+  ctx.save();
+  const dx = sx(Math.min(top.x + top.w / 2 + 75, (W * 0.42) / S)), dyy = sy((topI - 3.5) * BH);
+  ctx.translate(dx, dyy);
+  ctx.rotate(0.55);
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = `hsl(${hueAt(topI - 1)},65%,52%)`;
+  ctx.fillRect(-30 * S, -BH * S / 2, 60 * S, BH * S);
+  ctx.restore();
+
+  document.title = 'ready';
+})();
+</script>
+</body>
+</html>
